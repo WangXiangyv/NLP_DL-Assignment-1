@@ -1,0 +1,12 @@
+python run.py\
+ --lr 1e-3\
+ --epoch 30\
+ --batch_size 64\
+ --seed 2024\
+ --do_train 0\
+ --embedding_dim 512\
+ --hidden_dim 512\
+ --output_dropout_prob 0.15\
+ --embed_dropout_prob 0.15\
+ --do_eval 1\
+ --pre_trained_model_path model_cache/2024_10_11_22_49_34/best_bleu_model.pth

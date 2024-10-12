@@ -1,0 +1,12 @@
+python word2vec.py\
+ --do_train 1\
+ --do_eval 0\
+ --min_count 0\
+ --embedding_path embedding/jp_embedding.bin\
+ --epochs 20\
+ --language Japanese\
+ --vector_size 512\
+ --window 5\
+ --seed 0\
+ --negative 5\
+ --sg 1
