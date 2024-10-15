@@ -166,9 +166,9 @@ def main():
             [
                 "私の名前は愛です", # My name is love
                 "昨日はお肉を食べません", # I didn't eat meat yesterday
-                "いただきますよう", # I hope you enjoy it
+                "いただきますよう", # Let's eat
                 "秋は好きです", # I like autumn
-                "おはようございます" # Good morning,
+                "おはようございます" # Good morning
             ],
             beam_size=5
         )

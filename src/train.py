@@ -23,7 +23,7 @@ def train(train_ds_loader:DataLoader, dev_ds_loader_perplexity:DataLoader, dev_d
     # scheduler_2 = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=22)
     # scheduler_2 = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.8)
     # scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer=optimizer, schedulers=(scheduler_1, scheduler_2), milestones=[7])
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=30)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epoch)
     step = 0
     best_loss = 1000
     best_bleu = 0
