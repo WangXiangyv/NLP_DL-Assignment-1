@@ -113,7 +113,6 @@ class LSTM_Model(nn.Module):
         # Linear projection layers
         self.h_proj = nn.Linear(2*self.hidden_dim, self.hidden_dim) # encoder last h to decoder first h
         self.c_proj = nn.Linear(2*self.hidden_dim, self.hidden_dim) # encoder last c to decoder first c
-        self.att_proj = nn.Linear(2*self.hidden_dim, self.hidden_dim, bias=False) # attention proj
         self.out_proj = nn.Linear(3*self.hidden_dim, self.hidden_dim) # output proj
         self.vocab_proj = nn.Linear(self.hidden_dim, self.tgt_vocab_size) # output_dim to vocab_size
         self.bahdanau_att = BahdanauAttention(2*self.hidden_dim, self.hidden_dim)
@@ -184,9 +183,7 @@ class LSTM_Model(nn.Module):
         
         # embed
         tgt_padded = self.embeddings.tgt_embedding(tgt_padded) # (tgt_len-1, B, E)
-        
-        # attention projection
-        enc_hiddens_proj = self.att_proj(enc_hiddens) # (B, src_len, H)
+        tgt_padded = self.dec_embed_dropout(tgt_padded)
         
         # initial output and state
         output_t = torch.zeros((enc_hiddens.shape[0], self.hidden_dim), device=self.device) # (B, H)
@@ -197,13 +194,13 @@ class LSTM_Model(nn.Module):
         for Y in torch.split(tgt_padded, split_size_or_sections=1, dim=0): # Y (1, B, E)
             Y = Y.squeeze() # (B, E)
             input_t = torch.cat((output_t, Y), dim=1) # (B, H+E)
-            dec_hidden_t, dec_cell_t, output_t = self.decode_step(input_t, dec_hidden_t, dec_cell_t, enc_hiddens_proj, enc_hiddens, src_masks)
+            dec_hidden_t, dec_cell_t, output_t = self.decode_step(input_t, dec_hidden_t, dec_cell_t, enc_hiddens, src_masks)
             outputs.append(output_t)
 
         dec_outputs = torch.stack(outputs) # (tgt_len-1, B, H)
         return dec_outputs
     
-    def decode_step(self, input, last_dec_hidden, last_dec_cell, enc_hiddens_proj, enc_hiddens, src_masks):
+    def decode_step(self, input, last_dec_hidden, last_dec_cell, enc_hiddens, src_masks):
         '''
         input (B, H+E)
         last_dec_hidden/cell (B, H)
@@ -212,17 +209,16 @@ class LSTM_Model(nn.Module):
         enc_masks (B, src_len)
         '''
         dec_hidden, dec_cell = self.decoder(input, (last_dec_hidden, last_dec_cell)) # (B, H), (B, H)
-        # alpha = torch.bmm(enc_hiddens_proj, dec_hidden.unsqueeze(dim=2)).squeeze(dim=2) # (B, src_len)
-        alpha = self.bahdanau_att(enc_hiddens, dec_hidden).squeeze(dim=2)
+        norm_dec_hidden = self.dec_ln(dec_hidden)
+        alpha = self.bahdanau_att(enc_hiddens, norm_dec_hidden).squeeze(dim=2)
         if src_masks is not None:
             alpha.masked_fill_(~src_masks.bool(), -float('inf')) # (B, src_len)
         alpha = F.softmax(alpha, dim=-1) # (B, src_len)
         a = torch.bmm(alpha.unsqueeze(dim=1), enc_hiddens).squeeze(dim=1) # (B, 2*H)
-        u = torch.cat((a, self.dec_ln(dec_hidden)), dim=1) # (B, 3*H)
+        u = torch.cat((a, norm_dec_hidden), dim=1) # (B, 3*H)
         output = self.output_dropout(F.tanh(self.out_proj(u))) # (B, H)
         
         return dec_hidden, dec_cell, output
-    
 
     def beam_search(self, src_sentence:torch.Tensor, beam_size:int=5, max_decoding_time_step:int=64) -> List[Hypothesis]:
         '''
@@ -237,9 +233,6 @@ class LSTM_Model(nn.Module):
         dec_cell_t = self.c_proj(final_cell) # (1, H)
         output_t = torch.zeros(1, self.hidden_dim, device=self.device) # (1, H)
         
-        # attention projection
-        enc_hiddens_proj = self.att_proj(enc_hiddens) # (1, L, H)
-        
         hypotheses = [[self.vocab.tgt.sos_id]]
         hyp_scores = torch.zeros(1, dtype=torch.float32, device=self.device)
         completed_hypotheses = []
@@ -252,13 +245,12 @@ class LSTM_Model(nn.Module):
             # Pretend to have batch size of hyp_num
             hyp_num = len(hypotheses)
             expanded_enc_hiddens = enc_hiddens.expand(hyp_num, enc_hiddens.size(1), enc_hiddens.size(2)) # (hyp, L, 2*H)
-            expanded_enc_hiddens_proj = enc_hiddens_proj.expand(hyp_num, enc_hiddens_proj.size(1), enc_hiddens_proj.size(2)) # (hyp, L, H)
             Y_t = torch.tensor([hyp[-1] for hyp in hypotheses], dtype=torch.long, device=self.device) # (hyp,)
             Y_t = self.embeddings.tgt_embedding(Y_t) # (hyp, E)
             input_t = torch.cat((output_t, Y_t), dim=1)
             
             # decode step
-            dec_hidden_t, dec_cell_t, output_t = self.decode_step(input_t, dec_hidden_t, dec_cell_t, expanded_enc_hiddens_proj, expanded_enc_hiddens, src_masks=None)
+            dec_hidden_t, dec_cell_t, output_t = self.decode_step(input_t, dec_hidden_t, dec_cell_t, expanded_enc_hiddens, src_masks=None)
             
             # Update beam
             log_P_t = F.log_softmax(self.vocab_proj(output_t)) # (hyp, vocab)
